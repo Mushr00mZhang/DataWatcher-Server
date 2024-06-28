@@ -1,0 +1,28 @@
+ES:
+  Addresses:
+    - http://10.77.11.10/es01
+Watchers:
+  - Provider: WMS
+    Requester: MES
+    # Code: FinishOrder
+    Desc: 通用WMSWebService发送
+    Method: 调度
+    App: ExecuteWSDataSend
+    Tags:
+    DSN: chartset=utf8mb4;server=10.88.2.147;port=1433;user id=sa;password=newmes#EDC;database=AUXMESDB;parseTime=true;loc=Local;
+    SQLTemplate: SELECT COUNT(1) FROM AUXMESDB.dbo.Interface_WMSWSSendData WITH(NOLOCK) WHERE (SendStatus=0 OR SendStatus=1) AND ExpectSendTime>=@SDate AND ExpectSendTime<=@EDate AND SendCount<5
+    Enabled: true
+  - Provider: WMS
+    Requester: MES
+    # Code: FinishOrder
+    Desc: 回传WMS接收到的漏扫数据
+    Method: 调度
+    App: ExecuteMissScanReceived
+    Tags:
+    DSN: chartset=utf8mb4;server=10.88.2.147;port=1433;user id=sa;password=newmes#EDC;database=AUXMESDB;parseTime=true;loc=Local;
+    SQLTemplate: SELECT COUNT(1) FROM AUXMESDB.dbo.WMS_MissScanReceived WITH(NOLOCK) WHERE DoStatus=0 AND CreateTime>=@SDate AND CreateTime<=@EDate
+    Extend:
+      Site: 扩展字段1
+      Cell: 扩展字段2
+    Enabled: true
+Interval: 5
