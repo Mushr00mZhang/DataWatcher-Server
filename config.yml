@@ -2,27 +2,64 @@ ES:
   Addresses:
     - http://10.77.11.10/es01
 Watchers:
-  - Provider: WMS
+  - Module: 制造执行
+    System: MES
+    Provider: WMS
     Requester: MES
-    # Code: FinishOrder
-    Desc: 通用WMSWebService发送
-    Method: 调度
+    Type: Push
+    Method: Scheduler
     App: ExecuteWSDataSend
+    Desc: 通用WMSWebService发送
+    Interface: http://10.88.2.217:18087/ibus/ws/process?wsdl
+    ConfigPath: SchedulerServerConfig.xml:WmsWsUrl
     Tags:
-    DSN: chartset=utf8mb4;server=10.88.2.147;port=1433;user id=sa;password=newmes#EDC;database=AUXMESDB;parseTime=true;loc=Local;
-    SQLTemplate: SELECT COUNT(1) FROM AUXMESDB.dbo.Interface_WMSWSSendData WITH(NOLOCK) WHERE (SendStatus=0 OR SendStatus=1) AND ExpectSendTime>=@SDate AND ExpectSendTime<=@EDate AND SendCount<5
+      - 货
+      - 库存
+    SQL:
+      Type: sqlserver
+      DSN: chartset=utf8mb4;server=10.88.2.147;port=1433;user id=sa;password=newmes#EDC;database=AUXMESDB;parseTime=true;loc=Local;
+      GetExpired: "with ExpiredDays as (
+                           SELECT Data Barcode
+                                 ,ExpectSendTime
+                                 ,DATEDIFF(SECOND,ExpectSendTime,getdate())/3600/24 ExpiredDays
+                           FROM AUXMESDB.dbo.Interface_WMSWSSendData WITH(NOLOCK)
+                           WHERE (SendStatus=0 OR SendStatus=1)
+                       )
+                       ,ExpiredType as (
+                           select Barcode
+                                 ,case when ExpiredDays>=1 and ExpiredDays<7 then 1
+                                       when ExpiredDays>=7 and ExpiredDays<32 then 2
+                                       when ExpiredDays>=32 then 3
+                                  end ExpiredType
+                           from ExpiredDays
+                       )
+                       ,ExpiredTypes as (
+                   select count(1) Count
+                         ,ExpiredType
+                   from ExpiredType
+                   group by ExpiredType
+                       )
+                       select '1122' 'Extend.Site'
+                     ,'test' 'Extend.Test'
+                     ,'subtest' 'Extend.Include.Test'
+                     ,'subtest2' 'Extend.Include.Test2'
+                     ,isnull((select Count from ExpiredTypes where ExpiredType=1),0)Expire1Day
+                     ,isnull((select Count from ExpiredTypes where ExpiredType=2),0)Expire1Week
+                     ,isnull((select Count from ExpiredTypes where ExpiredType=3),0)Expire1Month"
+      GetTasks:
+      ResetTasks:
+    Cron: 0/5 *
     Enabled: true
-  - Provider: WMS
-    Requester: MES
-    # Code: FinishOrder
-    Desc: 回传WMS接收到的漏扫数据
-    Method: 调度
-    App: ExecuteMissScanReceived
-    Tags:
-    DSN: chartset=utf8mb4;server=10.88.2.147;port=1433;user id=sa;password=newmes#EDC;database=AUXMESDB;parseTime=true;loc=Local;
-    SQLTemplate: SELECT COUNT(1) FROM AUXMESDB.dbo.WMS_MissScanReceived WITH(NOLOCK) WHERE DoStatus=0 AND CreateTime>=@SDate AND CreateTime<=@EDate
-    Extend:
-      Site: 扩展字段1
-      Cell: 扩展字段2
-    Enabled: true
-Interval: 5
+  # - Provider: WMS
+  #   Requester: MES
+  #   # Code: FinishOrder
+  #   Desc: 回传WMS接收到的漏扫数据
+  #   Method: 调度
+  #   App: ExecuteMissScanReceived
+  #   Tags:
+  #   DSN: chartset=utf8mb4;server=10.88.2.147;port=1433;user id=sa;password=newmes#EDC;database=AUXMESDB;parseTime=true;loc=Local;
+  #   SQLTemplate: SELECT COUNT(1) FROM AUXMESDB.dbo.WMS_MissScanReceived WITH(NOLOCK) WHERE DoStatus=0 AND CreateTime>=@SDate AND CreateTime<=@EDate
+  #   Extend:
+  #     Site: 扩展字段1
+  #     Cell: 扩展字段2
+  #   Enabled: true

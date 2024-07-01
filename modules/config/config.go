@@ -6,22 +6,27 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"server/modules/es"
 	"server/modules/watcher"
-	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/robfig/cron/v3"
 	"gopkg.in/yaml.v3"
 )
 
 const ConfigPath = "./config.yml"
 
 var Conf *Config
+var (
+	ConfigStatusStop    int8 = 0
+	ConfigStatusRunning int8 = 1
+)
 
 type Config struct {
 	Watchers *[]*watcher.Config `yaml:"Watchers"` // 监控列表
 	ES       *es.Config         `yaml:"ES"`       // Elasticsearch
-	Interval int                `yaml:"Interval"` // 轮询时间（分钟）
+	Cron     *cron.Cron
 	Status   int8
 }
 
@@ -51,36 +56,66 @@ func (conf *Config) Init() {
 	watcher.ES = conf.ES
 	watcher.Watchers = conf.Watchers
 }
+func (conf *Config) Start() {
+	if conf.Status == ConfigStatusStop {
+		fmt.Printf("GOMAXPROCS=%d\n", runtime.GOMAXPROCS(0))
+		conf.Status = ConfigStatusRunning
+		if conf.Cron == nil {
+			conf.Cron = cron.New(
+				cron.WithParser(
+					cron.NewParser(cron.Minute | cron.Hour),
+				),
+			)
+			watcher.Cron = conf.Cron
+		}
+		for _, watcher := range *Conf.Watchers {
+			if watcher.EntryID != 0 {
+				continue
+			}
+			err := watcher.Enable()
+			if err != nil {
+				continue
+			}
+		}
+		conf.Cron.Start()
+	}
+}
 func (conf *Config) Run(ch chan struct{}) {
-	if conf.Status == 1 {
-		Conf.LogDatas()
-		dur, _ := time.ParseDuration(fmt.Sprintf("%vm", Conf.Interval))
-		time.Sleep(dur)
-		conf.Run(ch)
+	if conf.Status == ConfigStatusStop {
+		fmt.Printf("GOMAXPROCS=%d\n", runtime.GOMAXPROCS(0))
+		conf.Status = ConfigStatusRunning
+		if conf.Cron == nil {
+			conf.Cron = cron.New()
+		}
+		for _, watcher := range *Conf.Watchers {
+			if watcher.EntryID != 0 {
+				continue
+			}
+			err := watcher.Enable()
+			if err != nil {
+				continue
+			}
+		}
+		conf.Cron.Start()
 	} else {
+		conf.Stop()
 		close(ch)
 	}
 }
 func (conf *Config) Stop() {
-	conf.Status = 0
-}
-func (conf *Config) LogDatas() {
+	conf.Status = ConfigStatusStop
+	ctx := conf.Cron.Stop()
+	ctx.Done()
 	for _, watcher := range *conf.Watchers {
-		err := watcher.Connect()
-		if err != nil {
-			continue
-		}
-		data, err := watcher.GetData()
-		if err != nil {
-			continue
-		}
-		conf.ES.Log(watcher.App, data)
+		watcher.EntryID = 0
 	}
 }
 
 func BindRouter(base *mux.Router) {
 	r := base.PathPrefix("/config").Subrouter()
 	r.HandleFunc("", GetConfig).Methods(http.MethodGet)
+	r.HandleFunc("/start", Start).Methods(http.MethodGet)
+	r.HandleFunc("/stop", Stop).Methods(http.MethodGet)
 }
 func GetConfig(w http.ResponseWriter, r *http.Request) {
 	bytes, err := json.Marshal(Conf)
@@ -89,5 +124,21 @@ func GetConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Add("Content-Type", "application/json;charset=UTF-8")
 	w.Write(bytes)
+	w.WriteHeader(200)
+}
+
+// 启动监控
+func Start(w http.ResponseWriter, r *http.Request) {
+	go Conf.Start()
+	w.Header().Add("Content-Type", "application/json;charset=UTF-8")
+	w.Write([]byte("true"))
+	w.WriteHeader(200)
+}
+
+// 停止监控
+func Stop(w http.ResponseWriter, r *http.Request) {
+	Conf.Stop()
+	w.Header().Add("Content-Type", "application/json;charset=UTF-8")
+	w.Write([]byte("true"))
 	w.WriteHeader(200)
 }

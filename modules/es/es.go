@@ -56,14 +56,14 @@ const LogLevelWarn = "Warn"
 const LogLevelError = "Error"
 
 type Log struct {
-	Timestamp time.Time              `json:"timestamp"`
-	Level     string                 `json:"Level"`
-	Info      string                 `json:"Info"`
-	Detail    string                 `json:"Detail"`
-	Extend    map[string]interface{} `json:"Extend"`
+	Timestamp time.Time   `json:"timestamp"`
+	Level     string      `json:"Level"`
+	Info      string      `json:"Info"`
+	Detail    string      `json:"Detail"`
+	Extend    interface{} `json:"Extend"`
 }
 
-func (conf *Config) New(level string, info string, detail string, extend map[string]interface{}) Log {
+func (conf *Config) New(level string, info string, detail string, extend interface{}) Log {
 	return Log{
 		Timestamp: time.Now().Local(),
 		Level:     level,
@@ -72,19 +72,19 @@ func (conf *Config) New(level string, info string, detail string, extend map[str
 		Extend:    extend,
 	}
 }
-func (conf *Config) NewDebug(info string, detail string, extend map[string]interface{}) {
+func (conf *Config) NewDebug(info string, detail string, extend interface{}) {
 	log := conf.New(LogLevelDebug, info, detail, extend)
 	conf.Log(LogIndex, log)
 }
-func (conf *Config) NewInfo(info string, detail string, extend map[string]interface{}) {
+func (conf *Config) NewInfo(info string, detail string, extend interface{}) {
 	log := conf.New(LogLevelInfo, info, detail, extend)
 	conf.Log(LogIndex, log)
 }
-func (conf *Config) NewWarn(info string, detail string, extend map[string]interface{}) {
+func (conf *Config) NewWarn(info string, detail string, extend interface{}) {
 	log := conf.New(LogLevelWarn, info, detail, extend)
 	conf.Log(LogIndex, log)
 }
-func (conf *Config) NewError(info string, detail string, extend map[string]interface{}) {
+func (conf *Config) NewError(info string, detail string, extend interface{}) {
 	log := conf.New(LogLevelError, info, detail, extend)
 	conf.Log(LogIndex, log)
 }
