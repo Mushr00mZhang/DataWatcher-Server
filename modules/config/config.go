@@ -30,6 +30,7 @@ type Config struct {
 	Status   int8
 }
 
+// 读取配置文件
 func Read() {
 	bytes, err := os.ReadFile(ConfigPath)
 	if err != nil {
@@ -44,6 +45,8 @@ func Read() {
 	}
 	Conf = &conf
 }
+
+// 保存配置文件
 func Save() {
 	bytes, err := yaml.Marshal(Conf)
 	if err != nil {
@@ -51,11 +54,15 @@ func Save() {
 	}
 	os.WriteFile(ConfigPath, bytes, 0666)
 }
+
+// 初始化
 func (conf *Config) Init() {
 	conf.ES.Init()
 	watcher.ES = conf.ES
 	watcher.Watchers = conf.Watchers
 }
+
+// 开始调度
 func (conf *Config) Start() {
 	if conf.Status == ConfigStatusStop {
 		fmt.Printf("GOMAXPROCS=%d\n", runtime.GOMAXPROCS(0))
@@ -70,9 +77,10 @@ func (conf *Config) Start() {
 		}
 		for _, watcher := range *Conf.Watchers {
 			if watcher.EntryID != 0 {
+				// watcher.Stop()
 				continue
 			}
-			err := watcher.Enable()
+			err := watcher.Start()
 			if err != nil {
 				continue
 			}
@@ -80,42 +88,43 @@ func (conf *Config) Start() {
 		conf.Cron.Start()
 	}
 }
-func (conf *Config) Run(ch chan struct{}) {
-	if conf.Status == ConfigStatusStop {
-		fmt.Printf("GOMAXPROCS=%d\n", runtime.GOMAXPROCS(0))
-		conf.Status = ConfigStatusRunning
-		if conf.Cron == nil {
-			conf.Cron = cron.New()
-		}
-		for _, watcher := range *Conf.Watchers {
-			if watcher.EntryID != 0 {
-				continue
-			}
-			err := watcher.Enable()
-			if err != nil {
-				continue
-			}
-		}
-		conf.Cron.Start()
-	} else {
-		conf.Stop()
-		close(ch)
-	}
-}
+
+//	func (conf *Config) Run(ch chan struct{}) {
+//		if conf.Status == ConfigStatusStop {
+//			fmt.Printf("GOMAXPROCS=%d\n", runtime.GOMAXPROCS(0))
+//			conf.Status = ConfigStatusRunning
+//			if conf.Cron == nil {
+//				conf.Cron = cron.New()
+//			}
+//			for _, watcher := range *Conf.Watchers {
+//				if watcher.EntryID != 0 {
+//					continue
+//				}
+//				err := watcher.Enable()
+//				if err != nil {
+//					continue
+//				}
+//			}
+//			conf.Cron.Start()
+//		} else {
+//			conf.Stop()
+//			close(ch)
+//		}
+//	}
 func (conf *Config) Stop() {
-	conf.Status = ConfigStatusStop
 	ctx := conf.Cron.Stop()
 	ctx.Done()
 	for _, watcher := range *conf.Watchers {
 		watcher.EntryID = 0
 	}
+	conf.Status = ConfigStatusStop
 }
 
 func BindRouter(base *mux.Router) {
 	r := base.PathPrefix("/config").Subrouter()
 	r.HandleFunc("", GetConfig).Methods(http.MethodGet)
-	r.HandleFunc("/start", Start).Methods(http.MethodGet)
-	r.HandleFunc("/stop", Stop).Methods(http.MethodGet)
+	r.HandleFunc("/start", Start).Methods(http.MethodPatch)
+	r.HandleFunc("/stop", Stop).Methods(http.MethodPatch)
 }
 func GetConfig(w http.ResponseWriter, r *http.Request) {
 	bytes, err := json.Marshal(Conf)
@@ -127,7 +136,7 @@ func GetConfig(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 }
 
-// 启动监控
+// 启动调度
 func Start(w http.ResponseWriter, r *http.Request) {
 	go Conf.Start()
 	w.Header().Add("Content-Type", "application/json;charset=UTF-8")
@@ -135,7 +144,7 @@ func Start(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 }
 
-// 停止监控
+// 停止调度
 func Stop(w http.ResponseWriter, r *http.Request) {
 	Conf.Stop()
 	w.Header().Add("Content-Type", "application/json;charset=UTF-8")

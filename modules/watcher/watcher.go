@@ -23,40 +23,41 @@ var ES *es.Config
 var Watchers *[]*Config
 var Cron *cron.Cron
 var (
-	SQLTypeSQLServer = "sqlserver"
-	SQLTypeMySQL     = "mysql"
-	SQLTypeSQLite    = "sqlite"
-	SQLTypeOracle    = "oracle"
+	DataConfigTypeAPI       = "api"
+	DataConfigTypeSQLServer = "sqlserver"
+	DataConfigTypeMySQL     = "mysql"
+	DataConfigTypeSQLite    = "sqlite"
+	DataConfigTypeOracle    = "oracle"
 )
 
-// 监控数据库脚本
-type SQLConfig struct {
-	Type       string `yaml:"Type"`       // 数据库类型（sqlserver/mysql/sqlite）
-	DSN        string `yaml:"DSN"`        // 数据库连接串
-	GetExpired string `yaml:"GetExpired"` // 获取过期数据脚本
-	GetTasks   string `yaml:"GetTasks"`   // 获取任务列表脚本
-	ResetTasks string `yaml:"ResetTasks"` // 重置任务状态脚本
+// 监控数据配置
+type DataConfig struct {
+	Type       string `yaml:"Type"`       // 类型（api/sqlserver/mysql/sqlite）
+	DSN        string `yaml:"DSN"`        // 连接串
+	GetExpired string `yaml:"GetExpired"` // 获取过期数据
+	GetTasks   string `yaml:"GetTasks"`   // 获取任务列表
+	ResetTasks string `yaml:"ResetTasks"` // 重置任务状态
 }
 
 // 监控配置
 type Config struct {
-	Module     string       `yaml:"Module"`           // 模块
-	System     string       `yaml:"System"`           // 系统
-	Provider   string       `yaml:"Provider"`         // 提供方
-	Requester  string       `yaml:"Requester"`        // 请求方
-	Type       string       `yaml:"Type"`             // 类型（Push/Pull）
-	Method     string       `yaml:"Method"`           // 承载方式
-	App        string       `yaml:"App"`              // 应用名称
-	Desc       string       `yaml:"Desc"`             // 描述
-	Interface  string       `yaml:"Interface"`        // 接口名称
-	ConfigPath string       `yaml:"ConfigPath"`       // 配置路径
-	Tags       []string     `yaml:"Tags"`             // 标签
-	SQL        SQLConfig    `yaml:"SQL"`              // 数据库脚本
-	Extend     interface{}  `yaml:"Extend"`           // 扩展字段
-	Cron       string       `yaml:"Cron"`             // Cron表达式
-	Enabled    bool         `yaml:"Enabled" `         // 是否启用
-	DB         *gorm.DB     `yaml:"-" json:"-"`       // 连接池
-	EntryID    cron.EntryID `yaml:"-" json:"EntryID"` // Cron运行时ID
+	Module     string       `yaml:"Module"`     // 模块
+	System     string       `yaml:"System"`     // 系统
+	Provider   string       `yaml:"Provider"`   // 提供方
+	Requester  string       `yaml:"Requester"`  // 请求方
+	Type       string       `yaml:"Type"`       // 类型（Push/Pull）
+	Method     string       `yaml:"Method"`     // 承载方式
+	App        string       `yaml:"App"`        // 应用名称
+	Desc       string       `yaml:"Desc"`       // 描述
+	Interface  string       `yaml:"Interface"`  // 接口名称
+	ConfigPath string       `yaml:"ConfigPath"` // 配置路径
+	Tags       []string     `yaml:"Tags"`       // 标签
+	DataConfig DataConfig   `yaml:"DataConfig"` // 监控数据配置
+	Extend     interface{}  `yaml:"Extend"`     // 扩展字段
+	Cron       string       `yaml:"Cron"`       // Cron表达式
+	Enabled    bool         `yaml:"Enabled"`    // 是否启用
+	DB         *gorm.DB     `yaml:"-" json:"-"` // 连接池
+	EntryID    cron.EntryID `yaml:"-" json:"-"` // Cron运行时ID
 }
 
 // 数据库连接
@@ -64,30 +65,31 @@ func (conf *Config) Connect() error {
 	if conf.DB != nil {
 		return nil
 	}
-	if conf.SQL.DSN == "" {
-		ES.NewError("DSN not found", "", nil)
-		return errors.New("DSN not found")
+	if conf.DataConfig.DSN == "" {
+		err := errors.New("DSN not found")
+		ES.NewError("Connect to db failed", err.Error(), nil)
+		return err
 	}
-	if conf.SQL.Type == "" {
-		conf.SQL.Type = SQLTypeSQLServer
+	if conf.DataConfig.Type == "" {
+		conf.DataConfig.Type = DataConfigTypeSQLServer
 	}
 	var open func(dsn string) gorm.Dialector
-	switch conf.SQL.Type {
-	case SQLTypeSQLServer:
+	switch conf.DataConfig.Type {
+	case DataConfigTypeSQLServer:
 		open = sqlserver.Open
-	case SQLTypeMySQL:
+	case DataConfigTypeMySQL:
 		open = mysql.Open
-	case SQLTypeSQLite:
+	case DataConfigTypeSQLite:
 		open = sqlite.Open
-		// case SQLTypeOracle:
+		// case DataConfigTypeOracle:
 		// 	open = oracle.Open
 	}
 	if open != nil {
-		db, err := gorm.Open(open(conf.SQL.DSN), &gorm.Config{})
+		db, err := gorm.Open(open(conf.DataConfig.DSN), &gorm.Config{})
 		if err != nil {
-			ES.NewError(fmt.Sprintf("Open %s failed", conf.SQL.Type), err.Error(), map[string]interface{}{
-				"Type": conf.SQL.Type,
-				"DSN":  conf.SQL.DSN,
+			ES.NewError(fmt.Sprintf("Open %s failed", conf.DataConfig.Type), err.Error(), map[string]interface{}{
+				"Type": conf.DataConfig.Type,
+				"DSN":  conf.DataConfig.DSN,
 			})
 			return err
 		}
@@ -96,22 +98,45 @@ func (conf *Config) Connect() error {
 	return nil
 }
 
-// 获取数据
-func (conf *Config) GetExpiredData() (*Data, error) {
+// 从api获取数据
+func (conf *Config) GetExpiredDataFromAPI() (*ExpiredData, error) {
+	url := conf.DataConfig.GetExpired
+	resp, err := http.Get(url)
+	if err != nil {
+		ES.NewError("Get expired data failed", err.Error(), conf)
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var data ExpiredData
+	_bytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		ES.NewError("Get expired data failed", err.Error(), nil)
+		return nil, err
+	}
+	err = json.Unmarshal(_bytes, &data)
+	if err != nil {
+		ES.NewError("Get expired data failed", err.Error(), nil)
+		return nil, err
+	}
+	return &data, nil
+}
+
+// 从数据库获取数据
+func (conf *Config) GetExpiredDataFromSQL() (*ExpiredData, error) {
 	err := conf.Connect()
 	if err != nil {
-		ES.NewError("Connect to db error", err.Error(), map[string]interface{}{
-			"DSN": conf.SQL.DSN,
+		ES.NewError("Get expired data failed", err.Error(), map[string]interface{}{
+			"DSN": conf.DataConfig.DSN,
 		})
 		return nil, err
 	}
 	// 临时存储，获取所有平铺键值对，后续解析
 	temp := map[string]interface{}{}
-	conf.DB.Raw(conf.SQL.GetExpired).First(&temp)
+	conf.DB.Raw(conf.DataConfig.GetExpired).First(&temp)
 	// 解析结果，将平铺键值对转为嵌套对象
 	parsedInterface := parseInterface(temp)
 	extend := parsedInterface["Extend"]
-	data := Data{
+	data := ExpiredData{
 		Config:       conf,
 		TimeStamp:    time.Now().Local(),
 		Expire1Day:   parseInt(parsedInterface["Expire1Day"]),
@@ -128,7 +153,21 @@ func (conf *Config) GetExpiredData() (*Data, error) {
 }
 
 func (conf *Config) LogExpiredData() {
-	data, err := conf.GetExpiredData()
+	var getData func() (*ExpiredData, error)
+	switch conf.DataConfig.Type {
+	case DataConfigTypeAPI:
+		getData = conf.GetExpiredDataFromAPI
+	case DataConfigTypeSQLServer:
+		getData = conf.GetExpiredDataFromSQL
+	case DataConfigTypeMySQL:
+		getData = conf.GetExpiredDataFromSQL
+	case DataConfigTypeSQLite:
+		getData = conf.GetExpiredDataFromSQL
+	}
+	if getData == nil {
+		return
+	}
+	data, err := getData()
 	if err != nil {
 		return
 	}
@@ -193,33 +232,62 @@ func parseInterface(i map[string]interface{}) map[string]interface{} {
 
 // 启用监控
 func (conf *Config) Enable() error {
-	if conf.Enabled && conf.EntryID != 0 {
+	if conf.Enabled {
+		return nil
+	}
+	conf.Enabled = true
+	// conf.Start()
+	return nil
+}
+
+// 启动监控
+func (conf *Config) Start() error {
+	if Cron == nil {
+		return nil
+	}
+	if !conf.Enabled {
+		err := errors.New("watcher is disabled")
+		ES.NewError("Start watcher failed", err.Error(), *conf)
+		return err
+	}
+	if conf.EntryID != 0 {
+		// err := errors.New("watcher is running")
+		// ES.NewError("Start watcher failed", err.Error(), *conf)
+		// return err
 		return nil
 	}
 	if conf.Cron == "" {
 		err := errors.New("cron expression is null")
-		ES.NewError("Enable watcher failed", err.Error(), *conf)
+		ES.NewError("Start watcher failed", err.Error(), *conf)
 		return err
 	}
 	id, err := Cron.AddFunc(conf.Cron, conf.LogExpiredData)
 	if err != nil {
-		ES.NewError("Enable watcher failed", err.Error(), *conf)
+		ES.NewError("Start watcher failed", err.Error(), *conf)
 		return err
 	}
 	conf.EntryID = id
-	conf.Enabled = true
 	return nil
 }
 
 // 禁用监控
 func (conf *Config) Disable() {
 	conf.DB = nil
-	Cron.Remove(conf.EntryID)
-	conf.EntryID = 0
-	conf.Enabled = false
+	conf.Stop()
 }
 
-type Data struct {
+// 关闭监控
+func (conf *Config) Stop() {
+	if conf.DB != nil {
+		conf.DB = nil
+	}
+	if conf.EntryID != 0 {
+		Cron.Remove(conf.EntryID)
+		conf.EntryID = 0
+	}
+}
+
+type ExpiredData struct {
 	Config       *Config     ``                 // 配置
 	TimeStamp    time.Time   `json:"timestamp"` // 时间戳
 	Expire1Day   int         ``                 // 过期1天
@@ -229,7 +297,7 @@ type Data struct {
 }
 
 // 上传到ES
-func (data *Data) ToES() error {
+func (data *ExpiredData) ToES() error {
 	return ES.Log(data.Config.App, data)
 }
 
@@ -243,6 +311,7 @@ func BindRouter(base *mux.Router) {
 	r.HandleFunc("/{app}", DeleteWatcher).Methods(http.MethodDelete)
 	r.HandleFunc("/{app}/enable", EnableWatcher).Methods(http.MethodPatch)
 	r.HandleFunc("/{app}/disable", DisableWatcher).Methods(http.MethodPatch)
+	r.HandleFunc("/{app}/entry", GetWatcherEntry).Methods(http.MethodGet)
 }
 
 // 获取监控列表
@@ -297,8 +366,24 @@ func CreateWatcher(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		return
 	}
+	for _, watcher := range *Watchers {
+		if watcher.App == conf.App {
+			err := errors.New("duplicated app")
+			if err != nil {
+				ES.NewError("Create watcher failed", err.Error(), conf)
+			}
+			_bytes, _ := json.Marshal("duplicated app")
+			w.Header().Add("Content-Type", "application/json;charset=UTF-8")
+			w.Write(_bytes)
+			w.WriteHeader(400)
+			return
+		}
+	}
 	watchers := append(*Watchers, &conf)
 	Watchers = &watchers
+	if conf.Enabled {
+		conf.Start()
+	}
 	w.Header().Add("Content-Type", "application/json;charset=UTF-8")
 	w.Write([]byte(conf.App))
 	w.WriteHeader(200)
@@ -326,11 +411,26 @@ func UpdateWatcher(w http.ResponseWriter, r *http.Request) {
 	watchers := *Watchers
 	for i, watcher := range *Watchers {
 		if watcher.App == app {
-			if (watcher.SQL.Type != conf.SQL.Type || watcher.SQL.DSN != conf.SQL.DSN) && watcher.DB != nil {
-				watcher.DB = nil
+			switch {
+			case !conf.Enabled:
+				watcher.Disable()
+			case watcher.Cron != conf.Cron:
+				watcher.Stop()
+			case watcher.DataConfig.Type != conf.DataConfig.Type:
+				watcher.Stop()
+			case watcher.DataConfig.DSN != conf.DataConfig.DSN:
+				watcher.Stop()
+			case watcher.DataConfig.GetExpired != conf.DataConfig.GetExpired:
+				watcher.Stop()
 			}
+			conf.App = app
+			conf.DB = watcher.DB
+			conf.EntryID = watcher.EntryID
 			watchers[i] = &conf
 			Watchers = &watchers
+			if conf.Enabled {
+				conf.Start()
+			}
 			w.Header().Add("Content-Type", "application/json;charset=UTF-8")
 			w.Write([]byte(watcher.App))
 			w.WriteHeader(200)
@@ -350,9 +450,8 @@ func DeleteWatcher(w http.ResponseWriter, r *http.Request) {
 		if watcher.App != app {
 			watchers[i] = watcher
 			i++
-		} else if watcher.DB != nil {
-			watcher.DB = nil
-			Cron.Remove(watcher.EntryID)
+		} else {
+			watcher.Disable()
 		}
 	}
 	watchers = watchers[:i]
@@ -393,6 +492,77 @@ func DisableWatcher(w http.ResponseWriter, r *http.Request) {
 			watcher.Disable()
 			w.Header().Add("Content-Type", "application/json;charset=UTF-8")
 			w.Write([]byte(watcher.App))
+			w.WriteHeader(200)
+			return
+		}
+	}
+	w.WriteHeader(404)
+}
+
+// 开始监控
+func StartWatcher(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	app := vars["app"]
+	for _, watcher := range *Watchers {
+		if watcher.App == app {
+			err := watcher.Start()
+			if err != nil {
+				w.Header().Add("Content-Type", "application/json;charset=UTF-8")
+				w.Write([]byte(err.Error()))
+				w.WriteHeader(500)
+				return
+			}
+			w.Header().Add("Content-Type", "application/json;charset=UTF-8")
+			w.Write([]byte(watcher.App))
+			w.WriteHeader(200)
+			return
+		}
+	}
+	w.WriteHeader(404)
+}
+
+// 停止监控
+func StopWatcher(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	app := vars["app"]
+	for _, watcher := range *Watchers {
+		if watcher.App == app {
+			watcher.Stop()
+			w.Header().Add("Content-Type", "application/json;charset=UTF-8")
+			w.Write([]byte(watcher.App))
+			w.WriteHeader(200)
+			return
+		}
+	}
+	w.WriteHeader(404)
+}
+
+func GetWatcherEntry(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	app := vars["app"]
+	for _, watcher := range *Watchers {
+		if watcher.App == app {
+			var res map[string]interface{}
+			if watcher.EntryID == 0 {
+				res = map[string]interface{}{
+					"ID":   0,
+					"Prev": nil,
+					"Next": nil,
+				}
+			} else {
+				entry := Cron.Entry(watcher.EntryID)
+				res = map[string]interface{}{
+					"ID":   entry.ID,
+					"Prev": entry.Prev,
+					"Next": entry.Next,
+				}
+			}
+			_bytes, err := json.Marshal(res)
+			if err != nil {
+				ES.NewError("Get watcher entry failed", err.Error(), res)
+			}
+			w.Header().Add("Content-Type", "application/json;charset=UTF-8")
+			w.Write(_bytes)
 			w.WriteHeader(200)
 			return
 		}

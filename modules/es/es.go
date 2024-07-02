@@ -4,27 +4,36 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
 	elasticsearch7 "github.com/elastic/go-elasticsearch/v7"
+	"github.com/elastic/go-elasticsearch/v7/estransport"
 )
 
 type Config struct {
 	Addresses []string               `yaml:"Addresses"`
+	Username  string                 `yaml:"Username"`
+	Password  string                 `yaml:"Password"`
 	Client    *elasticsearch7.Client `json:"-"`
 }
 
 func (conf *Config) Init() {
 	client, err := elasticsearch7.NewClient(elasticsearch7.Config{
 		Addresses: conf.Addresses,
+		Username:  conf.Username,
+		Password:  conf.Password,
 	})
 	if err != nil {
 		log.Fatalf("Connect to es failed: %v", err)
 		panic(err)
 	}
 	conf.Client = client
+	log.Println(client.Transport.(*estransport.Client).URLs())
 }
 
 func (conf *Config) Log(index string, data interface{}) error {
@@ -44,6 +53,10 @@ func (conf *Config) Log(index string, data interface{}) error {
 	)
 	if err != nil {
 		return err
+	}
+	if res.StatusCode != http.StatusCreated {
+		_bytes, _ := io.ReadAll(res.Body)
+		fmt.Printf("Log index failed. Error:%s\n", string(_bytes))
 	}
 	defer res.Body.Close()
 	return nil
