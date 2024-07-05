@@ -1,38 +1,13 @@
 services:
-  es01:
-    image: elasticsearch:7.17.22
-    container_name: es01
-    environment:
-      - node.name=es01
-      - cluster.name=es-docker-cluster
-      - cluster.initial_master_nodes=es01
-      - bootstrap.memory_lock=true
-      - 'ES_JAVA_OPTS=-Xms512m -Xmx512m'
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
+  interfacewatcher_server:
+    image: interfacewatcher-server
+    container_name: interfacewatcher_server
+    ports:
+      - 3001:8080
     volumes:
-      - ./test/data01:/usr/share/elasticsearch/data
-    ports:
-      - 9200:9200
+      - ./config.yml:/app/config.yml
     networks:
-      - elastic
-  kibana:
-    depends_on:
-      - es01
-    image: kibana:7.17.22
-    container_name: kibana
-    environment:
-      ELASTICSEARCH_HOSTS: '["http://es01:9200"]'
-      I18N_LOCALE: 'zh-CN'
-    ports:
-      - 5601:5601
-    networks:
-      - elastic
-volumes:
-  data01:
-    driver: local
+      - common_bridge
 networks:
-  elastic:
-    driver: bridge
+  common_bridge:
+    external: true

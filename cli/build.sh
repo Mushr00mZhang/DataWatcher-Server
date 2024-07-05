@@ -1,2 +1,2 @@
-docker build . -t interfacewatcher
-docker save -o interfacewatcher.tar interfacewatcher
+docker build . -t interfacewatcher-server
+docker save -o interfacewatcher_server.tar interfacewatcher-server
