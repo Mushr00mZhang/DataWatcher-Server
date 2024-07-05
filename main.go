@@ -7,12 +7,23 @@ import (
 	"server/controllers"
 	"server/modules"
 	"server/services"
+	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"gopkg.in/yaml.v3"
+
+	_ "time/tzdata"
 )
 
 func main() {
+	// 设置timezone，默认Asia/Shanghai
+	tz := os.Getenv("TZ")
+	if strings.TrimSpace(tz) == "" {
+		tz = "Asia/Shanghai"
+	}
+	time.LoadLocation(tz)
+
 	conf := ReadConfig()
 	scheduler := &modules.Scheduler{
 		Status: modules.SchedulerStatusStop,

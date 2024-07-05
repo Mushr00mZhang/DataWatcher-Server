@@ -6,6 +6,8 @@ services:
       - 3001:8080
     volumes:
       - ./config.yml:/app/config.yml
+    environment:
+      - TZ=Asia/Shanghai
     networks:
       - common_bridge
 networks:
