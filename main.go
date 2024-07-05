@@ -1,40 +1,59 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"net/http"
-	"server/modules/config"
-	"server/modules/watcher"
+	"os"
+	"server/controllers"
+	"server/modules"
+	"server/services"
 
 	"github.com/gorilla/mux"
+	"gopkg.in/yaml.v3"
 )
 
 func main() {
-	config.Read()
-	config.Conf.Init()
-	fmt.Printf("--- conf:\n%v\n%v\n", *config.Conf.Watchers, *config.Conf.ES)
-	// config.Conf.Start()
-	// c := cron.New(
-	// 	cron.WithParser(
-	// 		cron.NewParser(cron.Minute | cron.Hour),
-	// 	),
-	// )
-	// c.AddFunc("0/1 *", func() { fmt.Printf("%v\n", time.Now()) })
-	// c.Start()
-	// select {}
-	// var wg sync.WaitGroup
-	// wg.Add(1)
-	// done := make(chan struct{})
-
-	// go func() {
-	// 	defer wg.Done() // 在goroutine结束时调用，表示轮询已完成
-	// 	config.Conf.Status = config.ConfigStatusRunning
-	// 	config.Conf.Run(done)
-	// }()
+	conf := ReadConfig()
+	scheduler := &modules.Scheduler{
+		Status: modules.SchedulerStatusStop,
+	}
+	scheduler.Init()
+	elastic := conf.Elastic
+	elastic.Init()
+	// elasticService := services.NewElasticService(elastic)
+	schedulerService := services.NewSchedulerService(conf.Watchers, scheduler, elastic)
+	watcherService := services.NewWatcherService(conf.Watchers, scheduler, elastic)
 
 	router := mux.NewRouter()
 	apiRouter := router.PathPrefix("/api").Subrouter()
-	config.BindRouter(apiRouter)
-	watcher.BindRouter(apiRouter)
+	watcherController := controllers.NewWatcherController(watcherService)
+	schedulerController := controllers.NewSchedulerController(schedulerService)
+	watcherController.BindRouter(apiRouter)
+	schedulerController.BindRouter(apiRouter)
 	http.ListenAndServe(":8080", router)
+}
+
+// 读取配置文件
+func ReadConfig() *modules.Config {
+	bytes, err := os.ReadFile(modules.ConfigPath)
+	if err != nil {
+		log.Fatalf("Read config file failed: %v", err)
+		panic("Config file not found.")
+	}
+	var conf modules.Config
+	err = yaml.Unmarshal(bytes, &conf)
+	if err != nil {
+		log.Fatalf("Parse config file failed: %v", err)
+		panic("Config file cannot parse.")
+	}
+	return &conf
+}
+
+// 保存配置文件
+func SaveConfig(conf *modules.Config) {
+	bytes, err := yaml.Marshal(conf)
+	if err != nil {
+		log.Fatalf("Save config file failed: %v", err)
+	}
+	os.WriteFile(modules.ConfigPath, bytes, 0666)
 }

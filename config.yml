@@ -1,4 +1,4 @@
-ES:
+Elastic:
   Addresses:
     - http://10.77.11.10/es01
   Username: elastic
@@ -50,7 +50,7 @@ Watchers:
                      ,isnull((select Count from ExpiredTypes where ExpiredType=3),0)Expire1Month"
       GetTasks:
       ResetTasks:
-    Cron: 0/5 *
+    Cron: 0 0/1 *
     Enabled: true
   # - Provider: WMS
   #   Requester: MES

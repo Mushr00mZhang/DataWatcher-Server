@@ -1,4 +1,4 @@
-package es
+package modules
 
 import (
 	"bytes"
@@ -11,19 +11,19 @@ import (
 	"strings"
 	"time"
 
-	elasticsearch7 "github.com/elastic/go-elasticsearch/v7"
+	es7 "github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/estransport"
 )
 
-type Config struct {
-	Addresses []string               `yaml:"Addresses"`
-	Username  string                 `yaml:"Username"`
-	Password  string                 `yaml:"Password"`
-	Client    *elasticsearch7.Client `json:"-"`
+type Elastic struct {
+	Addresses []string    `yaml:"Addresses"`
+	Username  string      `yaml:"Username"`
+	Password  string      `yaml:"Password"`
+	Client    *es7.Client `json:"-"`
 }
 
-func (conf *Config) Init() {
-	client, err := elasticsearch7.NewClient(elasticsearch7.Config{
+func (conf *Elastic) Init() {
+	client, err := es7.NewClient(es7.Config{
 		Addresses: conf.Addresses,
 		Username:  conf.Username,
 		Password:  conf.Password,
@@ -36,7 +36,7 @@ func (conf *Config) Init() {
 	log.Println(client.Transport.(*estransport.Client).URLs())
 }
 
-func (conf *Config) Log(index string, data interface{}) error {
+func (conf *Elastic) Log(index string, data interface{}) error {
 	if conf.Client == nil {
 		conf.Init()
 	}
@@ -51,6 +51,7 @@ func (conf *Config) Log(index string, data interface{}) error {
 		conf.Client.Index.WithContext(context.Background()),
 		conf.Client.Index.WithRefresh("true"),
 	)
+	defer res.Body.Close()
 	if err != nil {
 		return err
 	}
@@ -58,7 +59,6 @@ func (conf *Config) Log(index string, data interface{}) error {
 		_bytes, _ := io.ReadAll(res.Body)
 		fmt.Printf("Log index failed. Error:%s\n", string(_bytes))
 	}
-	defer res.Body.Close()
 	return nil
 }
 
@@ -76,7 +76,7 @@ type Log struct {
 	Extend    interface{} `json:"Extend"`
 }
 
-func (conf *Config) New(level string, info string, detail string, extend interface{}) Log {
+func (conf *Elastic) New(level string, info string, detail string, extend interface{}) Log {
 	return Log{
 		Timestamp: time.Now().Local(),
 		Level:     level,
@@ -85,19 +85,19 @@ func (conf *Config) New(level string, info string, detail string, extend interfa
 		Extend:    extend,
 	}
 }
-func (conf *Config) NewDebug(info string, detail string, extend interface{}) {
+func (conf *Elastic) NewDebug(info string, detail string, extend interface{}) {
 	log := conf.New(LogLevelDebug, info, detail, extend)
 	conf.Log(LogIndex, log)
 }
-func (conf *Config) NewInfo(info string, detail string, extend interface{}) {
+func (conf *Elastic) NewInfo(info string, detail string, extend interface{}) {
 	log := conf.New(LogLevelInfo, info, detail, extend)
 	conf.Log(LogIndex, log)
 }
-func (conf *Config) NewWarn(info string, detail string, extend interface{}) {
+func (conf *Elastic) NewWarn(info string, detail string, extend interface{}) {
 	log := conf.New(LogLevelWarn, info, detail, extend)
 	conf.Log(LogIndex, log)
 }
-func (conf *Config) NewError(info string, detail string, extend interface{}) {
+func (conf *Elastic) NewError(info string, detail string, extend interface{}) {
 	log := conf.New(LogLevelError, info, detail, extend)
 	conf.Log(LogIndex, log)
 }
