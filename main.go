@@ -32,8 +32,8 @@ func main() {
 	elastic := conf.Elastic
 	elastic.Init()
 	// elasticService := services.NewElasticService(elastic)
-	schedulerService := services.NewSchedulerService(conf.Watchers, scheduler, elastic)
-	watcherService := services.NewWatcherService(conf.Watchers, scheduler, elastic)
+	schedulerService := services.NewSchedulerService(conf.Watchers, conf.Datasources, scheduler, elastic)
+	watcherService := services.NewWatcherService(conf.Watchers, conf.Datasources, scheduler, elastic)
 
 	router := mux.NewRouter()
 	apiRouter := router.PathPrefix("/api").Subrouter()

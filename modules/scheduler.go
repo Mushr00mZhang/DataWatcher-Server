@@ -24,7 +24,7 @@ func (scheduler *Scheduler) Init() {
 		)
 	}
 }
-func (scheduler *Scheduler) Start(watchers *[]*WatcherConfig, elastic *Elastic) {
+func (scheduler *Scheduler) Start(watchers *[]*WatcherConfig, datasources *[]*Datasource, elastic *Elastic) {
 	if scheduler.Status == SchedulerStatusStop {
 		// fmt.Printf("GOMAXPROCS=%d\n", runtime.GOMAXPROCS(0))
 		scheduler.Status = SchedulerStatusStart
@@ -34,7 +34,7 @@ func (scheduler *Scheduler) Start(watchers *[]*WatcherConfig, elastic *Elastic) 
 				// watcher.Stop()
 				continue
 			}
-			err := watcher.Start(scheduler.Cron, elastic)
+			err := watcher.Start(scheduler.Cron, datasources, elastic)
 			if err != nil {
 				continue
 			}

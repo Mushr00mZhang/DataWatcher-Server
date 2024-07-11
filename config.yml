@@ -3,6 +3,19 @@ Elastic:
     - http://10.77.11.10/es01
   Username: elastic
   Password: elastic
+Datasources:
+  - Code: NB-146
+    Type: sqlserver
+    Server: 10.88.2.146
+    Port: 1433
+    Username: sa
+    Password: newmes#EDC
+  - Code: MA-103
+    Type: sqlserver
+    Server: 10.222.130.103
+    Port: 1433
+    Username: sa
+    Password: newmes#EDC
 Watchers:
   - Module: 制造执行
     System: MES
@@ -17,40 +30,37 @@ Watchers:
     Tags:
       - 货
       - 库存
-    DataConfig:
-      Type: sqlserver
-      DSN: chartset=utf8mb4;server=10.88.2.147;port=1433;user id=sa;password=newmes#EDC;database=AUXMESDB;parseTime=true;loc=Local;
-      GetExpired: "with ExpiredDays as (
-                           SELECT Data Barcode
-                                 ,ExpectSendTime
-                                 ,DATEDIFF(SECOND,ExpectSendTime,getdate())/3600/24 ExpiredDays
-                           FROM AUXMESDB.dbo.Interface_WMSWSSendData WITH(NOLOCK)
-                           WHERE (SendStatus=0 OR SendStatus=1)
-                       )
-                       ,ExpiredType as (
-                           select Barcode
-                                 ,case when ExpiredDays>=1 and ExpiredDays<7 then 1
-                                       when ExpiredDays>=7 and ExpiredDays<32 then 2
-                                       when ExpiredDays>=32 then 3
-                                  end ExpiredType
-                           from ExpiredDays
-                       )
-                       ,ExpiredTypes as (
-                   select count(1) Count
-                         ,ExpiredType
-                   from ExpiredType
-                   group by ExpiredType
-                       )
-                       select '1122' 'Extend.Site'
-                     ,'test' 'Extend.Test'
+    Sources:
+      - NB-146
+      - MA-103
+    GetExpired: "with ExpiredDays as (
+                          SELECT Data Barcode
+                                ,ExpectSendTime
+                                ,DATEDIFF(SECOND,ExpectSendTime,getdate())/3600/24 ExpiredDays
+                          FROM AUXMESDB.dbo.Interface_WMSWSSendData WITH(NOLOCK)
+                          WHERE (SendStatus=0 OR SendStatus=1)
+                      )
+                      ,ExpiredType as (
+                          select Barcode
+                                ,case when ExpiredDays>=1 and ExpiredDays<7 then 1
+                                      when ExpiredDays>=7 and ExpiredDays<32 then 2
+                                      when ExpiredDays>=32 then 3
+                                end ExpiredType
+                          from ExpiredDays
+                      )
+                      ,ExpiredTypes as (
+                          select count(1) Count
+                                ,ExpiredType
+                          from ExpiredType
+                          group by ExpiredType
+                      )
+                      select 'test' 'Extend.Test'
                      ,'subtest' 'Extend.Include.Test'
                      ,'subtest2' 'Extend.Include.Test2'
                      ,isnull((select Count from ExpiredTypes where ExpiredType=1),0)Expire1Day
                      ,isnull((select Count from ExpiredTypes where ExpiredType=2),0)Expire1Week
                      ,isnull((select Count from ExpiredTypes where ExpiredType=3),0)Expire1Month"
-      GetTasks:
-      ResetTasks:
-    Cron: 0 0/1 *
+    Cron: 0/30 * *
     Enabled: true
   # - Provider: WMS
   #   Requester: MES

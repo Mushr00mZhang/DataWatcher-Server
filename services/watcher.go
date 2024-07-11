@@ -9,16 +9,18 @@ import (
 var ErrWatcherNotFound = errors.New("watcher not found")
 
 type WatcherService struct {
-	Watchers  *[]*modules.WatcherConfig
-	Scheduler *modules.Scheduler
-	Elastic   *modules.Elastic
+	Watchers    *[]*modules.WatcherConfig
+	Datasources *[]*modules.Datasource
+	Scheduler   *modules.Scheduler
+	Elastic     *modules.Elastic
 }
 
-func NewWatcherService(watchers *[]*modules.WatcherConfig, scheduler *modules.Scheduler, elastic *modules.Elastic) *WatcherService {
+func NewWatcherService(watchers *[]*modules.WatcherConfig, datasources *[]*modules.Datasource, scheduler *modules.Scheduler, elastic *modules.Elastic) *WatcherService {
 	return &WatcherService{
-		Watchers:  watchers,
-		Scheduler: scheduler,
-		Elastic:   elastic,
+		Watchers:    watchers,
+		Datasources: datasources,
+		Scheduler:   scheduler,
+		Elastic:     elastic,
 	}
 }
 
@@ -68,20 +70,20 @@ func (service WatcherService) UpdateWatcher(app string, new modules.WatcherConfi
 				watcher.Disable(service.Scheduler.Cron)
 			case watcher.Cron != new.Cron:
 				watcher.Stop(service.Scheduler.Cron)
-			case watcher.DataConfig.Type != new.DataConfig.Type:
-				watcher.Stop(service.Scheduler.Cron)
-			case watcher.DataConfig.DSN != new.DataConfig.DSN:
-				watcher.Stop(service.Scheduler.Cron)
-			case watcher.DataConfig.GetExpired != new.DataConfig.GetExpired:
+			// case watcher.DataConfig.Type != new.DataConfig.Type:
+			// 	watcher.Stop(service.Scheduler.Cron)
+			// case watcher.DataConfig.DSN != new.DataConfig.DSN:
+			// 	watcher.Stop(service.Scheduler.Cron)
+			case watcher.GetExpired != new.GetExpired:
 				watcher.Stop(service.Scheduler.Cron)
 			}
 			new.App = app
-			new.DB = watcher.DB
+			// new.DB = watcher.DB
 			new.EntryID = watcher.EntryID
 			(*service.Watchers)[i] = &new
 			// Watchers = &watchers
 			if new.Enabled {
-				new.Start(service.Scheduler.Cron, service.Elastic)
+				new.Start(service.Scheduler.Cron, service.Datasources, service.Elastic)
 			}
 		}
 	}
@@ -135,7 +137,7 @@ func (service WatcherService) StartWatcher(app string) error {
 	if err != nil {
 		return err
 	}
-	return watcher.Start(service.Scheduler.Cron, service.Elastic)
+	return watcher.Start(service.Scheduler.Cron, service.Datasources, service.Elastic)
 }
 
 // 停止监控
