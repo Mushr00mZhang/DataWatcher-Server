@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"math/rand"
 	"net/http"
 	"slices"
 	"strconv"
@@ -107,9 +106,6 @@ func (conf *WatcherConfig) GetExpiredDataFromSQL(datasource *Datasource) (*[]*Ex
 		rows.Scan(vals...)
 		// 解析结果，将平铺键值对转为嵌套对象
 		temp = map[string]interface{}{}
-		// for _, col := range cols {
-		// 	temp[col]=
-		// }
 		for i, v := range vals {
 			col := cols[i]
 			switch v := v.(type) {
@@ -129,9 +125,9 @@ func (conf *WatcherConfig) GetExpiredDataFromSQL(datasource *Datasource) (*[]*Ex
 			Extend:        extend,
 		}
 		// TEST:
-		data.Expire1Day = rand.Intn(5)
-		data.Expire1Week = data.Expire1Day + rand.Intn(5)
-		data.Expire1Month = data.Expire1Week + rand.Intn(5)
+		// data.Expire1Day = rand.Intn(5)
+		// data.Expire1Week = rand.Intn(5)
+		// data.Expire1Month = rand.Intn(5)
 		datas = append(datas, &data)
 	}
 	return &datas, nil
@@ -149,13 +145,13 @@ func (conf *WatcherConfig) GetExpiredDataFunc(datasources *[]*Datasource, elasti
 	}
 	return func() {
 		for _, datasource := range sources {
-			var getData func(datasource *Datasource) (*[]*ExpiredData, error)
+			var getDatas func(datasource *Datasource) (*[]*ExpiredData, error)
 			if datasource.Type == DataConfigTypeAPI {
-				getData = conf.GetExpiredDataFromAPI
+				getDatas = conf.GetExpiredDataFromAPI
 			} else {
-				getData = conf.GetExpiredDataFromSQL
+				getDatas = conf.GetExpiredDataFromSQL
 			}
-			datas, err := getData(datasource)
+			datas, err := getDatas(datasource)
 			if err != nil {
 				continue
 			}
