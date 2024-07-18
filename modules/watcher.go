@@ -92,16 +92,19 @@ func (conf *WatcherConfig) GetExpiredDataFromSQL(datasource *Datasource) (*[]*Ex
 		return nil, err
 	}
 
+	datas := make([]*ExpiredData, 0)
 	// 临时存储，获取所有平铺键值对，后续解析
 	var temp map[string]interface{}
 	rows, _ := datasource.DB.Query(conf.GetExpired)
+	if rows == nil {
+		return &datas, nil
+	}
 	cols, _ := rows.Columns()
 	vals := make([]interface{}, len(cols))
 	// res := make([]map[string]interface{}, 0)
 	for i := range cols {
 		vals[i] = new(interface{})
 	}
-	datas := make([]*ExpiredData, 0)
 	for rows.Next() {
 		rows.Scan(vals...)
 		// 解析结果，将平铺键值对转为嵌套对象
@@ -279,11 +282,11 @@ func (conf *WatcherConfig) Stop(cron *cron.Cron) {
 }
 
 type ExpiredData struct {
-	Datasource    string         ``                 // 数据源编号
-	WatcherConfig *WatcherConfig ``                 // 配置
-	TimeStamp     time.Time      `json:"timestamp"` // 时间戳
-	Expire1Day    int            ``                 // 过期1天
-	Expire1Week   int            ``                 // 过期7天
-	Expire1Month  int            ``                 // 过期1个月
-	Extend        interface{}    ``                 // 扩展字段
+	Datasource    string         ``                  // 数据源编号
+	WatcherConfig *WatcherConfig ``                  // 配置
+	TimeStamp     time.Time      `json:"@timestamp"` // 时间戳
+	Expire1Day    int            ``                  // 过期1天
+	Expire1Week   int            ``                  // 过期7天
+	Expire1Month  int            ``                  // 过期1个月
+	Extend        interface{}    ``                  // 扩展字段
 }
