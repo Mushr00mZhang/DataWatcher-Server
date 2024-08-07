@@ -19,15 +19,15 @@ var (
 )
 
 type Datasource struct {
-	Code     string  `yaml:"Code"`              // 编号
-	Type     string  `yaml:"Type"`              // 类型
-	Url      string  `yaml:"Url" json:"-"`      // 请求地址
-	DSN      string  `yaml:"DSN" json:"-"`      // 连接串
-	Server   string  `yaml:"Server" json:"-"`   // 服务
-	Port     int     `yaml:"Port" json:"-"`     // 端口
-	Username string  `yaml:"Username" json:"-"` // 用户名
-	Password string  `yaml:"Password" json:"-"` // 密码
-	DB       *sql.DB `yaml:"-" json:"-"`        // 连接池
+	Code     string  `yaml:"Code"`                        // 编号
+	Type     string  `yaml:"Type"`                        // 类型
+	Url      string  `yaml:"Url,omitempty" json:"-"`      // 请求地址
+	DSN      string  `yaml:"DSN,omitempty" json:"-"`      // 连接串
+	Server   string  `yaml:"Server" json:"-"`             // 服务
+	Port     int     `yaml:"Port" json:"-"`               // 端口
+	Username string  `yaml:"Username,omitempty" json:"-"` // 用户名
+	Password string  `yaml:"Password,omitempty" json:"-"` // 密码
+	DB       *sql.DB `yaml:"-" json:"-"`                  // 连接池
 }
 
 func (datasource *Datasource) GetDSN() string {

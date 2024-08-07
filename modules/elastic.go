@@ -19,7 +19,7 @@ type Elastic struct {
 	Addresses []string    `yaml:"Addresses"`
 	Username  string      `yaml:"Username"`
 	Password  string      `yaml:"Password"`
-	Client    *es7.Client `json:"-"`
+	Client    *es7.Client `yaml:"-" json:"-"`
 }
 
 func (conf *Elastic) Init() {

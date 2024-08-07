@@ -2,21 +2,26 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"server/modules"
 	"strings"
+
+	"github.com/robfig/cron/v3"
 )
 
 var ErrWatcherNotFound = errors.New("watcher not found")
 
 type WatcherService struct {
+	Config      *modules.Config
 	Watchers    *[]*modules.WatcherConfig
 	Datasources *[]*modules.Datasource
 	Scheduler   *modules.Scheduler
 	Elastic     *modules.Elastic
 }
 
-func NewWatcherService(watchers *[]*modules.WatcherConfig, datasources *[]*modules.Datasource, scheduler *modules.Scheduler, elastic *modules.Elastic) *WatcherService {
+func NewWatcherService(config *modules.Config, watchers *[]*modules.WatcherConfig, datasources *[]*modules.Datasource, scheduler *modules.Scheduler, elastic *modules.Elastic) *WatcherService {
 	return &WatcherService{
+		Config:      config,
 		Watchers:    watchers,
 		Datasources: datasources,
 		Scheduler:   scheduler,
@@ -25,12 +30,12 @@ func NewWatcherService(watchers *[]*modules.WatcherConfig, datasources *[]*modul
 }
 
 // 获取监控列表
-func (service WatcherService) GetWatchers() *[]*modules.WatcherConfig {
+func (service *WatcherService) GetWatchers() *[]*modules.WatcherConfig {
 	return service.Watchers
 }
 
 // 获取监控
-func (service WatcherService) GetWatcher(app string) (*modules.WatcherConfig, error) {
+func (service *WatcherService) GetWatcher(app string) (*modules.WatcherConfig, error) {
 	for _, watcher := range *service.Watchers {
 		if watcher.App == app {
 			return watcher, nil
@@ -40,7 +45,9 @@ func (service WatcherService) GetWatcher(app string) (*modules.WatcherConfig, er
 }
 
 // 创建监控
-func (service WatcherService) CreateWatcher(new modules.WatcherConfig) error {
+func (service *WatcherService) CreateWatcher(new *modules.WatcherConfig) error {
+	service.Config.Mutex.Lock()
+	defer service.Config.Mutex.Unlock()
 	if strings.TrimSpace(new.App) == "" {
 		return errors.New("app is nil")
 	}
@@ -51,18 +58,20 @@ func (service WatcherService) CreateWatcher(new modules.WatcherConfig) error {
 	if old != nil {
 		return errors.New("app is duplicated")
 	}
-	watchers := append(*service.Watchers, &new)
-	service.Watchers = &watchers
+	watchers := append(*service.Watchers, new)
+	(*service.Watchers) = watchers
+	service.Config.Save()
 	return nil
 }
 
 // 更新监控
-func (service WatcherService) UpdateWatcher(app string, new modules.WatcherConfig) error {
+func (service *WatcherService) UpdateWatcher(app string, new *modules.WatcherConfig) error {
+	service.Config.Mutex.Lock()
+	defer service.Config.Mutex.Unlock()
 	_, err := service.GetWatcher(app)
 	if err != nil {
 		return err
 	}
-	// watchers := *Watchers
 	for i, watcher := range *service.Watchers {
 		if watcher.App == app {
 			switch {
@@ -78,20 +87,21 @@ func (service WatcherService) UpdateWatcher(app string, new modules.WatcherConfi
 				watcher.Stop(service.Scheduler.Cron)
 			}
 			new.App = app
-			// new.DB = watcher.DB
 			new.EntryID = watcher.EntryID
-			(*service.Watchers)[i] = &new
-			// Watchers = &watchers
+			(*service.Watchers)[i] = new
 			if new.Enabled {
 				new.Start(service.Scheduler.Cron, service.Datasources, service.Elastic)
 			}
+			service.Config.Save()
 		}
 	}
 	return nil
 }
 
 // 删除监控
-func (service WatcherService) DeleteWatcher(app string) error {
+func (service *WatcherService) DeleteWatcher(app string) error {
+	service.Config.Mutex.Lock()
+	defer service.Config.Mutex.Unlock()
 	l := len(*service.Watchers)
 	i := 0
 	watchers := *service.Watchers
@@ -107,41 +117,51 @@ func (service WatcherService) DeleteWatcher(app string) error {
 		return ErrWatcherNotFound
 	} else {
 		(*service.Watchers) = watchers[:i]
-		// service.Watchers = &watchers
+		service.Config.Save()
 		return nil
 	}
 }
 
 // 启用监控
-func (service WatcherService) EnableWatcher(app string) error {
+func (service *WatcherService) EnableWatcher(app string) error {
+	service.Config.Mutex.Lock()
+	defer service.Config.Mutex.Unlock()
 	watcher, err := service.GetWatcher(app)
 	if err != nil {
 		return err
 	}
-	return watcher.Enable()
+	err = watcher.Enable()
+	if err != nil {
+		return err
+	}
+	service.Config.Save()
+	return nil
 }
 
 // 禁用监控
-func (service WatcherService) DisableWatcher(app string) error {
+func (service *WatcherService) DisableWatcher(app string) error {
+	service.Config.Mutex.Lock()
+	defer service.Config.Mutex.Unlock()
 	watcher, err := service.GetWatcher(app)
 	if err != nil {
 		return err
 	}
 	watcher.Disable(service.Scheduler.Cron)
+	service.Config.Save()
 	return nil
 }
 
 // 开始监控
-func (service WatcherService) StartWatcher(app string) error {
+func (service *WatcherService) StartWatcher(app string) (cron.EntryID, error) {
 	watcher, err := service.GetWatcher(app)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	return watcher.Start(service.Scheduler.Cron, service.Datasources, service.Elastic)
 }
 
 // 停止监控
-func (service WatcherService) StopWatcher(app string) error {
+func (service *WatcherService) StopWatcher(app string) error {
 	watcher, err := service.GetWatcher(app)
 	if err != nil {
 		return err
@@ -150,8 +170,8 @@ func (service WatcherService) StopWatcher(app string) error {
 	return nil
 }
 
-// 获取监控Id
-func (service WatcherService) GetWatcherEntry(app string) (map[string]interface{}, error) {
+// 获取监控状态
+func (service *WatcherService) GetWatcherEntry(app string) (map[string]interface{}, error) {
 	watcher, err := service.GetWatcher(app)
 	if err != nil {
 		return nil, err
@@ -159,6 +179,7 @@ func (service WatcherService) GetWatcherEntry(app string) (map[string]interface{
 	var res map[string]interface{}
 	if watcher.EntryID == 0 {
 		res = map[string]interface{}{
+			"App":  watcher.App,
 			"ID":   0,
 			"Prev": nil,
 			"Next": nil,
@@ -166,9 +187,55 @@ func (service WatcherService) GetWatcherEntry(app string) (map[string]interface{
 	} else {
 		entry := service.Scheduler.Cron.Entry(watcher.EntryID)
 		res = map[string]interface{}{
+			"App":  watcher.App,
 			"ID":   entry.ID,
 			"Prev": entry.Prev,
 			"Next": entry.Next,
+		}
+	}
+	return res, nil
+}
+
+// 获取监控列表状态
+func (service *WatcherService) GetEntries(apps []string) ([]map[string]interface{}, error) {
+	var watchers []*modules.WatcherConfig
+	if len(apps) == 0 {
+		watchers = make([]*modules.WatcherConfig, len(apps))
+		for i, app := range apps {
+			watcher, err := service.GetWatcher(app)
+			if err != nil {
+				watchers[i] = nil
+				fmt.Printf("Get watcher %s error : %s\n", app, err.Error())
+			}
+			watchers[i] = watcher
+		}
+	} else {
+		watchers = *(service.GetWatchers())
+	}
+	res := make([]map[string]interface{}, len(watchers))
+	for i, watcher := range watchers {
+		if watcher == nil {
+			res[i] = map[string]interface{}{
+				"App":  "",
+				"ID":   0,
+				"Prev": nil,
+				"Next": nil,
+			}
+		} else if watcher.EntryID == 0 {
+			res[i] = map[string]interface{}{
+				"App":  watcher.App,
+				"ID":   0,
+				"Prev": nil,
+				"Next": nil,
+			}
+		} else {
+			entry := service.Scheduler.Cron.Entry(watcher.EntryID)
+			res[i] = map[string]interface{}{
+				"App":  watcher.App,
+				"ID":   entry.ID,
+				"Prev": entry.Prev,
+				"Next": entry.Next,
+			}
 		}
 	}
 	return res, nil

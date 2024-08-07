@@ -34,7 +34,7 @@ func (scheduler *Scheduler) Start(watchers *[]*WatcherConfig, datasources *[]*Da
 				// watcher.Stop()
 				continue
 			}
-			err := watcher.Start(scheduler.Cron, datasources, elastic)
+			_, err := watcher.Start(scheduler.Cron, datasources, elastic)
 			if err != nil {
 				continue
 			}

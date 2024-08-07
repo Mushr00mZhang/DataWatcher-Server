@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -34,42 +35,46 @@ type WatcherDataConfig struct {
 
 // 监控配置
 type WatcherConfig struct {
-	Module     string       `yaml:"Module"`     // 模块
-	System     string       `yaml:"System"`     // 系统
-	Provider   string       `yaml:"Provider"`   // 提供方
-	Requester  string       `yaml:"Requester"`  // 请求方
-	Type       string       `yaml:"Type"`       // 类型（Push/Pull）
-	Method     string       `yaml:"Method"`     // 承载方式
-	App        string       `yaml:"App"`        // 应用名称
-	Desc       string       `yaml:"Desc"`       // 描述
-	Interface  string       `yaml:"Interface"`  // 接口名称
-	ConfigPath string       `yaml:"ConfigPath"` // 配置路径
-	Tags       []string     `yaml:"Tags"`       // 标签
-	Sources    []string     `yaml:"Sources"`    // 数据源编号列表
-	GetExpired string       `yaml:"GetExpired"` // 获取呆滞数据SQL
-	Extend     interface{}  `yaml:"Extend"`     // 扩展字段
-	Cron       string       `yaml:"Cron"`       // Cron表达式
-	Enabled    bool         `yaml:"Enabled"`    // 是否启用
-	EntryID    cron.EntryID `yaml:"-" json:"-"` // Cron运行时ID
+	Mutex        sync.Mutex   `yaml:"-" json:"-"` // 互斥锁
+	Module       string       `yaml:"Module"`     // 模块
+	System       string       `yaml:"System"`     // 系统
+	Provider     string       `yaml:"Provider"`   // 提供方
+	Requester    string       `yaml:"Requester"`  // 请求方
+	Type         string       `yaml:"Type"`       // 类型（Push/Pull）
+	Method       string       `yaml:"Method"`     // 承载方式
+	App          string       `yaml:"App"`        // 应用名称
+	Desc         string       `yaml:"Desc"`       // 描述
+	Interface    string       `yaml:"Interface"`  // 接口名称
+	ConfigPath   string       `yaml:"ConfigPath"` // 配置路径
+	Tags         []string     `yaml:"Tags"`       // 标签
+	Sources      []string     `yaml:"Sources"`    // 数据源编号列表
+	GetExpired   string       `yaml:"GetExpired"` // 获取呆滞数据SQL
+	Extend       interface{}  `yaml:"Extend"`     // 扩展字段
+	Cron         string       `yaml:"Cron"`       // Cron表达式
+	Enabled      bool         `yaml:"Enabled"`    // 是否启用
+	EntryID      cron.EntryID `yaml:"-"`          // Cron运行时ID
+	Count        int64        `yaml:"-"`          // 运行次数
+	PrevDuration int64        `yaml:"-"`          // 上次运行耗时(ms)
+	DurationAvg  int64        `yaml:"-"`          // 运行平均耗时(ms)
 }
 
 // 从api获取数据
-func (conf *WatcherConfig) GetExpiredDataFromAPI(datasource *Datasource) (*[]*ExpiredData, error) {
+func (watcher *WatcherConfig) GetExpiredDataFromAPI(datasource *Datasource) (*[]*ExpiredData, error) {
 	resp, err := http.Get(datasource.Url)
 	if err != nil {
-		// conf.Elastic.NewError("Get expired data failed", err.Error(), conf)
+		// watcher.Elastic.NewError("Get expired data failed", err.Error(), watcher)
 		return nil, err
 	}
 	defer resp.Body.Close()
 	var datas []*ExpiredData
 	_bytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		// conf.Elastic.NewError("Get expired data failed", err.Error(), nil)
+		// watcher.Elastic.NewError("Get expired data failed", err.Error(), nil)
 		return nil, err
 	}
 	err = json.Unmarshal(_bytes, &datas)
 	if err != nil {
-		// conf.Elastic.NewError("Get expired data failed", err.Error(), nil)
+		// watcher.Elastic.NewError("Get expired data failed", err.Error(), nil)
 		return nil, err
 	}
 	for _, data := range datas {
@@ -79,15 +84,15 @@ func (conf *WatcherConfig) GetExpiredDataFromAPI(datasource *Datasource) (*[]*Ex
 }
 
 // 从数据库获取数据
-func (conf *WatcherConfig) GetExpiredDataFromSQL(datasource *Datasource) (*[]*ExpiredData, error) {
+func (watcher *WatcherConfig) GetExpiredDataFromSQL(datasource *Datasource) (*[]*ExpiredData, error) {
 	if datasource.DB == nil {
 		db, _ := datasource.Connect()
 		datasource.DB = db
 	}
 	err := datasource.DB.Ping()
 	if err != nil {
-		// conf.Elastic.NewError("Get expired data failed", err.Error(), map[string]interface{}{
-		// 	"DSN": conf.DataConfig.DSN,
+		// watcher.Elastic.NewError("Get expired data failed", err.Error(), map[string]interface{}{
+		// 	"DSN": watcher.DataConfig.DSN,
 		// })
 		return nil, err
 	}
@@ -95,7 +100,7 @@ func (conf *WatcherConfig) GetExpiredDataFromSQL(datasource *Datasource) (*[]*Ex
 	datas := make([]*ExpiredData, 0)
 	// 临时存储，获取所有平铺键值对，后续解析
 	var temp map[string]interface{}
-	rows, _ := datasource.DB.Query(conf.GetExpired)
+	rows, _ := datasource.DB.Query(watcher.GetExpired)
 	if rows == nil {
 		return &datas, nil
 	}
@@ -120,7 +125,7 @@ func (conf *WatcherConfig) GetExpiredDataFromSQL(datasource *Datasource) (*[]*Ex
 		extend := parsedInterface["Extend"]
 		data := ExpiredData{
 			Datasource:    datasource.Code,
-			WatcherConfig: conf,
+			WatcherConfig: watcher,
 			TimeStamp:     time.Now().Local(),
 			Expire1Day:    parseInt(parsedInterface["Expire1Day"]),
 			Expire1Week:   parseInt(parsedInterface["Expire1Week"]),
@@ -136,32 +141,39 @@ func (conf *WatcherConfig) GetExpiredDataFromSQL(datasource *Datasource) (*[]*Ex
 	return &datas, nil
 }
 
-func (conf *WatcherConfig) GetExpiredDataFunc(datasources *[]*Datasource, elastic *Elastic) func() {
+func (watcher *WatcherConfig) GetExpiredDataFunc(datasources *[]*Datasource, elastic *Elastic) func() {
 	sources := make([]*Datasource, 0)
 	for _, datasource := range *datasources {
-		if slices.Contains(conf.Sources, datasource.Code) {
+		if slices.Contains(watcher.Sources, datasource.Code) {
 			sources = append(sources, datasource)
-			if len(sources) == len(conf.Sources) {
+			if len(sources) == len(watcher.Sources) {
 				break
 			}
 		}
 	}
 	return func() {
+		start := time.Now()
 		for _, datasource := range sources {
 			var getDatas func(datasource *Datasource) (*[]*ExpiredData, error)
 			if datasource.Type == DataConfigTypeAPI {
-				getDatas = conf.GetExpiredDataFromAPI
+				getDatas = watcher.GetExpiredDataFromAPI
 			} else {
-				getDatas = conf.GetExpiredDataFromSQL
+				getDatas = watcher.GetExpiredDataFromSQL
 			}
 			datas, err := getDatas(datasource)
 			if err != nil {
 				continue
 			}
 			for _, data := range *datas {
-				go elastic.Log(conf.App, data)
+				go elastic.Log(watcher.App, data)
 			}
 		}
+		dur := (time.Now().UnixNano() - start.UnixNano()) / 1e6
+		watcher.Mutex.Lock()
+		defer watcher.Mutex.Unlock()
+		watcher.DurationAvg = (watcher.DurationAvg*int64(watcher.Count) + dur) / (watcher.Count + 1)
+		watcher.Count++
+		watcher.PrevDuration = dur
 	}
 }
 
@@ -224,60 +236,67 @@ func parseInterface(i map[string]interface{}) map[string]interface{} {
 }
 
 // 启用监控
-func (conf *WatcherConfig) Enable() error {
-	if conf.Enabled {
+func (watcher *WatcherConfig) Enable() error {
+	watcher.Mutex.Lock()
+	defer watcher.Mutex.Unlock()
+	if watcher.Enabled {
 		return nil
 	}
-	conf.Enabled = true
-	// conf.Start()
+	watcher.Enabled = true
+	// watcher.Start()
 	return nil
 }
 
 // 启动监控
-func (conf *WatcherConfig) Start(cron *cron.Cron, datasources *[]*Datasource, elastic *Elastic) error {
+func (watcher *WatcherConfig) Start(cron *cron.Cron, datasources *[]*Datasource, elastic *Elastic) (cron.EntryID, error) {
+	watcher.Mutex.Lock()
+	defer watcher.Mutex.Unlock()
 	if cron == nil {
-		return nil
+		return 0, nil
 	}
-	if !conf.Enabled {
+	if !watcher.Enabled {
 		err := errors.New("watcher is disabled")
-		// conf.Elastic.NewError("Start watcher failed", err.Error(), *conf)
-		return err
+		// watcher.Elastic.NewError("Start watcher failed", err.Error(), *watcher)
+		return 0, err
 	}
-	if conf.EntryID != 0 {
+	if watcher.EntryID != 0 {
 		// err := errors.New("watcher is running")
-		// conf.Elastic.NewError("Start watcher failed", err.Error(), *conf)
+		// watcher.Elastic.NewError("Start watcher failed", err.Error(), *watcher)
 		// return err
-		return nil
+		return watcher.EntryID, nil
 	}
-	if conf.Cron == "" {
+	if watcher.Cron == "" {
 		err := errors.New("cron expression is null")
-		// conf.Elastic.NewError("Start watcher failed", err.Error(), *conf)
-		return err
+		// watcher.Elastic.NewError("Start watcher failed", err.Error(), *watcher)
+		return 0, err
 	}
-	fun := conf.GetExpiredDataFunc(datasources, elastic)
-	id, err := cron.AddFunc(conf.Cron, fun)
+	fun := watcher.GetExpiredDataFunc(datasources, elastic)
+	id, err := cron.AddFunc(watcher.Cron, fun)
 	if err != nil {
-		// conf.Elastic.NewError("Start watcher failed", err.Error(), *conf)
-		return err
+		// watcher.Elastic.NewError("Start watcher failed", err.Error(), *watcher)
+		return 0, err
 	}
-	conf.EntryID = id
-	return nil
+	watcher.EntryID = id
+	return id, nil
 }
 
 // 禁用监控
-func (conf *WatcherConfig) Disable(cron *cron.Cron) {
+func (watcher *WatcherConfig) Disable(cron *cron.Cron) {
 	if cron != nil {
-		conf.Stop(cron)
+		watcher.Stop(cron)
 	}
+	watcher.Enabled = false
 }
 
 // 关闭监控
-func (conf *WatcherConfig) Stop(cron *cron.Cron) {
-	if conf.EntryID != 0 {
+func (watcher *WatcherConfig) Stop(cron *cron.Cron) {
+	watcher.Mutex.Lock()
+	defer watcher.Mutex.Unlock()
+	if watcher.EntryID != 0 {
 		if cron != nil {
-			cron.Remove(conf.EntryID)
+			cron.Remove(watcher.EntryID)
 		}
-		conf.EntryID = 0
+		watcher.EntryID = 0
 	}
 }
 
