@@ -3,6 +3,7 @@ package modules
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"slices"
@@ -86,7 +87,10 @@ func (watcher *WatcherConfig) GetExpiredDataFromAPI(datasource *Datasource) (*[]
 // 从数据库获取数据
 func (watcher *WatcherConfig) GetExpiredDataFromSQL(datasource *Datasource) (*[]*ExpiredData, error) {
 	if datasource.DB == nil {
-		db, _ := datasource.Connect()
+		db, err := datasource.Connect()
+		if err != nil {
+			fmt.Printf("Connect %s db failed: %s\n", datasource.Code, err.Error())
+		}
 		datasource.DB = db
 	}
 	err := datasource.DB.Ping()
@@ -94,13 +98,17 @@ func (watcher *WatcherConfig) GetExpiredDataFromSQL(datasource *Datasource) (*[]
 		// watcher.Elastic.NewError("Get expired data failed", err.Error(), map[string]interface{}{
 		// 	"DSN": watcher.DataConfig.DSN,
 		// })
+		fmt.Printf("Ping db failed: %s\n", err.Error())
 		return nil, err
 	}
 
 	datas := make([]*ExpiredData, 0)
 	// 临时存储，获取所有平铺键值对，后续解析
 	var temp map[string]interface{}
-	rows, _ := datasource.DB.Query(watcher.GetExpired)
+	rows, err := datasource.DB.Query(watcher.GetExpired)
+	if err != nil {
+		fmt.Printf("Get %s expited failed: %s\n", watcher.App, err.Error())
+	}
 	if rows == nil {
 		return &datas, nil
 	}
