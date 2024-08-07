@@ -1,7 +1,7 @@
 services:
-  interfacewatcher_server:
+  interfacewatcher-server:
     image: interfacewatcher-server
-    container_name: interfacewatcher_server
+    container_name: interfacewatcher-server
     ports:
       - 3001:8080
     volumes:
