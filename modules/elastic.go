@@ -69,7 +69,7 @@ const LogLevelWarn = "Warn"
 const LogLevelError = "Error"
 
 type Log struct {
-	Timestamp time.Time   `json:"timestamp"`
+	Timestamp time.Time   `json:"@timestamp"`
 	Level     string      `json:"Level"`
 	Info      string      `json:"Info"`
 	Detail    string      `json:"Detail"`

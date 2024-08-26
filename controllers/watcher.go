@@ -13,12 +13,14 @@ import (
 )
 
 type WatcherController struct {
-	WatcherService *services.WatcherService
+	WatcherService    *services.WatcherService
+	DatasourceService *services.DatasourceService
 }
 
-func NewWatcherController(watcherService *services.WatcherService) *WatcherController {
+func NewWatcherController(watcherService *services.WatcherService, datasourceService *services.DatasourceService) *WatcherController {
 	return &WatcherController{
-		WatcherService: watcherService,
+		WatcherService:    watcherService,
+		DatasourceService: datasourceService,
 	}
 }
 
@@ -36,6 +38,7 @@ func (controller WatcherController) BindRouter(base *mux.Router) {
 	subrouter.HandleFunc("/{app}/disable", controller.DisableWatcher).Methods(http.MethodPatch)
 	subrouter.HandleFunc("/{app}/start", controller.StartWatcher).Methods(http.MethodPatch)
 	subrouter.HandleFunc("/{app}/stop", controller.StopWatcher).Methods(http.MethodPatch)
+	subrouter.HandleFunc("/{app}/data-preview", controller.DataPreviewWatcher).Methods(http.MethodGet)
 }
 
 // 获取监控列表
@@ -235,6 +238,31 @@ func (controller WatcherController) StopWatcher(w http.ResponseWriter, r *http.R
 		return
 	}
 	w.Write([]byte(app))
+	w.WriteHeader(200)
+}
+
+// 监控数据预览
+func (controller WatcherController) DataPreviewWatcher(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Content-Type", "application/json;charset=UTF-8")
+	vars := mux.Vars(r)
+	app := vars["app"]
+	datasourceCode := r.URL.Query().Get("datasourceCode")
+	datas, err := controller.WatcherService.DataPreviewWatcher(app, datasourceCode)
+	if err != nil {
+		w.Write([]byte(err.Error()))
+		if err == modules.ErrWatcherNotFound || err == modules.ErrDatasourceNotFound {
+			w.WriteHeader(404)
+			return
+		}
+		w.WriteHeader(500)
+		return
+	}
+	buf, err := json.Marshal(datas)
+	if err != nil {
+		w.WriteHeader(500)
+		return
+	}
+	w.Write(buf)
 	w.WriteHeader(200)
 }
 

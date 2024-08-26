@@ -18,3 +18,11 @@ func (service DatasourceService) GetDatasources() []string {
 	}
 	return list
 }
+func (service DatasourceService) GetDatasource(code string) (*modules.Datasource, error) {
+	for _, datasource := range *service.Datasources {
+		if datasource.Code == code {
+			return datasource, nil
+		}
+	}
+	return nil, modules.ErrDatasourceNotFound
+}

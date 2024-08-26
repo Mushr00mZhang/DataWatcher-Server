@@ -2,6 +2,7 @@ package modules
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	_ "github.com/glebarez/sqlite"
@@ -9,6 +10,8 @@ import (
 	_ "github.com/microsoft/go-mssqldb"
 	go_ora "github.com/sijms/go-ora/v2"
 )
+
+var ErrDatasourceNotFound = errors.New("datasource not found")
 
 var (
 	DatasourceTypeAPI       = "api"

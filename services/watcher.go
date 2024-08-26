@@ -12,20 +12,22 @@ import (
 var ErrWatcherNotFound = errors.New("watcher not found")
 
 type WatcherService struct {
-	Config      *modules.Config
-	Watchers    *[]*modules.WatcherConfig
-	Datasources *[]*modules.Datasource
-	Scheduler   *modules.Scheduler
-	Elastic     *modules.Elastic
+	Config            *modules.Config
+	Watchers          *[]*modules.WatcherConfig
+	DatasourceService *DatasourceService
+	Datasources       *[]*modules.Datasource
+	Scheduler         *modules.Scheduler
+	Elastic           *modules.Elastic
 }
 
-func NewWatcherService(config *modules.Config, watchers *[]*modules.WatcherConfig, datasources *[]*modules.Datasource, scheduler *modules.Scheduler, elastic *modules.Elastic) *WatcherService {
+func NewWatcherService(config *modules.Config, watchers *[]*modules.WatcherConfig, datasourceService *DatasourceService, datasources *[]*modules.Datasource, scheduler *modules.Scheduler, elastic *modules.Elastic) *WatcherService {
 	return &WatcherService{
-		Config:      config,
-		Watchers:    watchers,
-		Datasources: datasources,
-		Scheduler:   scheduler,
-		Elastic:     elastic,
+		Config:            config,
+		Watchers:          watchers,
+		DatasourceService: datasourceService,
+		Datasources:       datasources,
+		Scheduler:         scheduler,
+		Elastic:           elastic,
 	}
 }
 
@@ -168,6 +170,19 @@ func (service *WatcherService) StopWatcher(app string) error {
 	}
 	watcher.Stop(service.Scheduler.Cron)
 	return nil
+}
+
+// 监控数据预览
+func (service *WatcherService) DataPreviewWatcher(app string, datasourceCode string) (*[]modules.ExpiredData, error) {
+	watcher, err := service.GetWatcher(app)
+	if err != nil {
+		return nil, err
+	}
+	datasource, err := service.DatasourceService.GetDatasource(datasourceCode)
+	if err != nil {
+		return nil, err
+	}
+	return watcher.GenerateGetExpiredDataFunc(datasource, service.Elastic)()
 }
 
 // 获取监控状态
