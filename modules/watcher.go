@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -157,16 +156,22 @@ func (watcher *WatcherConfig) GetExpiredDataFromSQL(datasource *Datasource) (*[]
 }
 
 func (watcher *WatcherConfig) GetExpiredDataFunc(datasources *[]*Datasource, elastic *Elastic) func() {
-	funcs := make([]func() (*[]ExpiredData, error), len(*datasources))
-	for i, datasource := range *datasources {
-		if slices.Contains(watcher.Sources, datasource.Code) {
-			funcs[i] = watcher.GenerateGetExpiredDataFunc(datasource, elastic)
+	funcs := make([]func() (*[]ExpiredData, error), len(watcher.Sources))
+	for i, datasourceCode := range watcher.Sources {
+		for _, datasource := range *datasources {
+			if datasourceCode == datasource.Code {
+				funcs[i] = watcher.GenerateGetExpiredDataFunc(datasource, elastic)
+				break
+			}
 		}
 	}
 	return func() {
 		var sqlDurSum, count int64 = 0, 0
 		start := time.Now()
 		for _, fn := range funcs {
+			if fn == nil {
+				continue
+			}
 			sqlStart := time.Now()
 			datas, err := fn()
 			if err != nil {
